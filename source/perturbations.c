@@ -114,7 +114,7 @@ int perturb_init(
   int index_k;
   /* pointer to one struct perturb_workspace per thread (one if no openmp) */
   struct perturb_workspace ** pppw;
-  /* number of threads (always one if no openmp) */
+                         /* number of threads (always one if no openmp) */
   int number_of_threads=1;
   /* index of the thread (always 0 if no openmp) */
   int thread=0;
@@ -2958,7 +2958,7 @@ int perturb_vector_init(
 
   int index_pt;
   int l;
-  int n_ncdm,index_q,ncdm_l_size;
+  int n_ncdm,index_q,ncdm_l_size,ncdm_l_size_approx;
   double rho_plus_p_ncdm,q,q2,epsilon,a,factor;
 
   /** - allocate a new perturb_vector structure to which ppw->pv will point at the end of the routine */
@@ -3098,9 +3098,12 @@ int perturb_vector_init(
           ppv->q_size_ncdm[n_ncdm] = pba->q_size_ncdm[n_ncdm];
         }
         else{
-          // In the fluid approximaation, hierarcy is cut at lmax = 2 and q dependance is integrated out:
+          // In the fluid approximaation, hierarcy is cut at lmax = 2, and q dependance is integrated out, or not:
           ppv->l_max_ncdm[n_ncdm] = 2;
-          ppv->q_size_ncdm[n_ncdm] = 1;
+          if (ppr->ncdm_fluid_approximation == ncdmfa_ah)
+            ppv->q_size_ncdm[n_ncdm] = pba->q_size_ncdm[n_ncdm]; // approximations like Archidiacono Hannestad
+          else
+            ppv->q_size_ncdm[n_ncdm] = 1; // fluid approximations
         }
         index_pt += (ppv->l_max_ncdm[n_ncdm]+1)*ppv->q_size_ncdm[n_ncdm];
       }
@@ -3750,40 +3753,57 @@ int perturb_vector_init(
             }
           }
 
-          a = ppw->pvecback[pba->index_bg_a];
-          index_pt = ppw->pv->index_pt_psi0_ncdm1;
-          for(n_ncdm = 0; n_ncdm < ppv->N_ncdm; n_ncdm++){
-            // We are in the fluid approximation, so ncdm_l_size is always 3.
-            ncdm_l_size = ppv->l_max_ncdm[n_ncdm]+1;
-            rho_plus_p_ncdm = ppw->pvecback[pba->index_bg_rho_ncdm1+n_ncdm]+
-              ppw->pvecback[pba->index_bg_p_ncdm1+n_ncdm];
-            for(l=0; l<=2; l++){
-              ppv->y[ppv->index_pt_psi0_ncdm1+ncdm_l_size*n_ncdm+l] = 0.0;
+          if (ppr->ncdm_fluid_approximation == ncdmfa_ah) {
+
+            for(n_ncdm = 0; n_ncdm < ppv->N_ncdm; n_ncdm++){
+              ncdm_l_size = ppw->pv->l_max_ncdm[n_ncdm]+1;
+              // We are in the fluid approximation, so ncdm_l_size is always 3.
+              ncdm_l_size_approx = ppv->l_max_ncdm[n_ncdm]+1;
+              for(index_q=0; index_q < ppw->pv->q_size_ncdm[n_ncdm]; index_q++){
+                ppv->y[ppv->index_pt_psi0_ncdm1+ncdm_l_size_approx*n_ncdm] = ppw->pv->y[ppv->index_pt_psi0_ncdm1+ncdm_l_size*n_ncdm];
+                ppv->y[ppv->index_pt_psi0_ncdm1+1+ncdm_l_size_approx*n_ncdm] = ppw->pv->y[ppv->index_pt_psi0_ncdm1+1+ncdm_l_size*n_ncdm];
+                ppv->y[ppv->index_pt_psi0_ncdm1+2+ncdm_l_size_approx*n_ncdm] = ppw->pv->y[ppv->index_pt_psi0_ncdm1+2+ncdm_l_size*n_ncdm];
+              }
             }
-            factor = pba->factor_ncdm[n_ncdm]*pow(pba->a_today/a,4);
-            for(index_q=0; index_q < ppw->pv->q_size_ncdm[n_ncdm]; index_q++){
-              // Integrate over distributions:
-              q = pba->q_ncdm[n_ncdm][index_q];
-              q2 = q*q;
-              epsilon = sqrt(q2+a*a*pba->M_ncdm[n_ncdm]*pba->M_ncdm[n_ncdm]);
-              ppv->y[ppv->index_pt_psi0_ncdm1+ncdm_l_size*n_ncdm] +=
-                pba->w_ncdm[n_ncdm][index_q]*q2*epsilon*
-                ppw->pv->y[index_pt];
+          }
 
-              ppv->y[ppv->index_pt_psi0_ncdm1+ncdm_l_size*n_ncdm+1] +=
-                pba->w_ncdm[n_ncdm][index_q]*q2*q*
-                ppw->pv->y[index_pt+1];
+          else {
 
-              ppv->y[ppv->index_pt_psi0_ncdm1+ncdm_l_size*n_ncdm+2] +=
-                pba->w_ncdm[n_ncdm][index_q]*q2*q2/epsilon*
-                ppw->pv->y[index_pt+2];
+            a = ppw->pvecback[pba->index_bg_a];
+            index_pt = ppw->pv->index_pt_psi0_ncdm1;
+            for(n_ncdm = 0; n_ncdm < ppv->N_ncdm; n_ncdm++){
+              // We are in the fluid approximation, so ncdm_l_size is always 3.
+              ncdm_l_size = ppv->l_max_ncdm[n_ncdm]+1;
+              rho_plus_p_ncdm = ppw->pvecback[pba->index_bg_rho_ncdm1+n_ncdm]+
+                ppw->pvecback[pba->index_bg_p_ncdm1+n_ncdm];
+              for(l=0; l<=2; l++){
+                ppv->y[ppv->index_pt_psi0_ncdm1+ncdm_l_size*n_ncdm+l] = 0.0;
+              }
+              factor = pba->factor_ncdm[n_ncdm]*pow(pba->a_today/a,4);
+              for(index_q=0; index_q < ppw->pv->q_size_ncdm[n_ncdm]; index_q++){
+                // Integrate over distributions:
+                q = pba->q_ncdm[n_ncdm][index_q];
+                q2 = q*q;
+                epsilon = sqrt(q2+a*a*pba->M_ncdm[n_ncdm]*pba->M_ncdm[n_ncdm]);
+                ppv->y[ppv->index_pt_psi0_ncdm1+ncdm_l_size*n_ncdm] +=
+                  pba->w_ncdm[n_ncdm][index_q]*q2*epsilon*
+                  ppw->pv->y[index_pt];
 
-              //Jump to next momentum bin in ppw->pv->y:
-              index_pt += (ppw->pv->l_max_ncdm[n_ncdm]+1);
+                ppv->y[ppv->index_pt_psi0_ncdm1+ncdm_l_size*n_ncdm+1] +=
+                  pba->w_ncdm[n_ncdm][index_q]*q2*q*
+                  ppw->pv->y[index_pt+1];
+
+                ppv->y[ppv->index_pt_psi0_ncdm1+ncdm_l_size*n_ncdm+2] +=
+                  pba->w_ncdm[n_ncdm][index_q]*q2*q2/epsilon*
+                  ppw->pv->y[index_pt+2];
+
+                //Jump to next momentum bin in ppw->pv->y:
+                index_pt += (ppw->pv->l_max_ncdm[n_ncdm]+1);
+              }
+              ppv->y[ppv->index_pt_psi0_ncdm1+ncdm_l_size*n_ncdm] *=factor/ppw->pvecback[pba->index_bg_rho_ncdm1+n_ncdm];
+              ppv->y[ppv->index_pt_psi0_ncdm1+ncdm_l_size*n_ncdm+1] *=k*factor/rho_plus_p_ncdm;
+              ppv->y[ppv->index_pt_psi0_ncdm1+ncdm_l_size*n_ncdm+2] *=2.0/3.0*factor/rho_plus_p_ncdm;
             }
-            ppv->y[ppv->index_pt_psi0_ncdm1+ncdm_l_size*n_ncdm] *=factor/ppw->pvecback[pba->index_bg_rho_ncdm1+n_ncdm];
-            ppv->y[ppv->index_pt_psi0_ncdm1+ncdm_l_size*n_ncdm+1] *=k*factor/rho_plus_p_ncdm;
-            ppv->y[ppv->index_pt_psi0_ncdm1+ncdm_l_size*n_ncdm+2] *=2.0/3.0*factor/rho_plus_p_ncdm;
           }
         }
       }
@@ -6732,6 +6752,7 @@ int perturb_derivs(double tau,
   int index_q,n_ncdm,idx;
   double q,epsilon,dlnf0_dlnq,qk_div_epsilon;
   double rho_ncdm_bg,p_ncdm_bg,pseudo_p_ncdm,w_ncdm,ca2_ncdm,ceff2_ncdm=0.,cvis2_ncdm=0.;
+  double xarg,psi3;
 
   /* for use with curvature */
   double cotKgen, sqrt_absK;
@@ -7272,71 +7293,107 @@ int perturb_derivs(double tau,
 
         for (n_ncdm=0; n_ncdm<pv->N_ncdm; n_ncdm++) {
 
-          /** -----> define intermediate quantitites */
+          if (ppr->ncdm_fluid_approximation == ncdmfa_ah) {
 
-          rho_ncdm_bg = pvecback[pba->index_bg_rho_ncdm1+n_ncdm]; /* background density */
-          p_ncdm_bg = pvecback[pba->index_bg_p_ncdm1+n_ncdm]; /* background pressure */
-          pseudo_p_ncdm = pvecback[pba->index_bg_pseudo_p_ncdm1+n_ncdm]; /* pseudo-pressure (see CLASS IV paper) */
-          w_ncdm = p_ncdm_bg/rho_ncdm_bg; /* eqaution of state parameter */
-          ca2_ncdm = w_ncdm/3.0/(1.0+w_ncdm)*(5.0-pseudo_p_ncdm/p_ncdm_bg); /* adiabatic sound speed */
+            /** -----> loop over momentum */
 
-          /* c_eff is (delta p / delta rho) in the gauge under
-             consideration (not in the gauge comoving with the
-             fluid) */
+            for (index_q=0; index_q < pv->q_size_ncdm[n_ncdm]; index_q++) {
 
-          /* c_vis is introduced in order to close the system */
+              /** -----> define intermediate quantitites */
 
-          /* different ansatz for sound speed c_eff and viscosity speed c_vis */
-          if (ppr->ncdm_fluid_approximation == ncdmfa_mb) {
-            ceff2_ncdm = ca2_ncdm;
-            cvis2_ncdm = 3.*w_ncdm*ca2_ncdm;
+              dlnf0_dlnq = pba->dlnf0_dlnq_ncdm[n_ncdm][index_q];
+              q = pba->q_ncdm[n_ncdm][index_q];
+              epsilon = sqrt(q*q+a2*pba->M_ncdm[n_ncdm]*pba->M_ncdm[n_ncdm]);
+              qk_div_epsilon = k*q/epsilon;
+
+              /** -----> ncdm density for given momentum bin */
+
+              dy[idx] = -qk_div_epsilon*y[idx+1]+metric_continuity*dlnf0_dlnq/3.;
+
+              /** -----> ncdm velocity for given momentum bin */
+
+              dy[idx+1] = qk_div_epsilon/3.0*(y[idx] - 2*s_l[2]*y[idx+2])
+                -epsilon*metric_euler/(3*q*k)*dlnf0_dlnq;
+
+              /** -----> ncdm shear for given momentum bin */
+
+              xarg = tau*qk_div_epsilon/pba->h;
+              psi3 = (1./7.+sqrt(5./7.)*xarg)/(1./xarg+xarg)*y[idx+2]*pow(k/pba->h,0.12);
+              dy[idx+2] = qk_div_epsilon/5.0*(2*s_l[2]*y[idx+1]-3.*s_l[3]*psi3)
+                -s_l[2]*metric_shear*2./15.*dlnf0_dlnq;
+
+              /** -----> jump to next momentum bin or species */
+
+              idx += (pv->l_max_ncdm[n_ncdm]+1);
+            }
           }
-          if (ppr->ncdm_fluid_approximation == ncdmfa_hu) {
-            ceff2_ncdm = ca2_ncdm;
-            cvis2_ncdm = w_ncdm;
+          else {
+
+            /** -----> define intermediate quantitites */
+
+            rho_ncdm_bg = pvecback[pba->index_bg_rho_ncdm1+n_ncdm]; /* background density */
+            p_ncdm_bg = pvecback[pba->index_bg_p_ncdm1+n_ncdm]; /* background pressure */
+            pseudo_p_ncdm = pvecback[pba->index_bg_pseudo_p_ncdm1+n_ncdm]; /* pseudo-pressure (see CLASS IV paper) */
+            w_ncdm = p_ncdm_bg/rho_ncdm_bg; /* eqaution of state parameter */
+            ca2_ncdm = w_ncdm/3.0/(1.0+w_ncdm)*(5.0-pseudo_p_ncdm/p_ncdm_bg); /* adiabatic sound speed */
+
+            /* c_eff is (delta p / delta rho) in the gauge under
+               consideration (not in the gauge comoving with the
+               fluid) */
+
+            /* c_vis is introduced in order to close the system */
+
+            /* different ansatz for sound speed c_eff and viscosity speed c_vis */
+            if (ppr->ncdm_fluid_approximation == ncdmfa_mb) {
+              ceff2_ncdm = ca2_ncdm;
+              cvis2_ncdm = 3.*w_ncdm*ca2_ncdm;
+            }
+            if (ppr->ncdm_fluid_approximation == ncdmfa_hu) {
+              ceff2_ncdm = ca2_ncdm;
+              cvis2_ncdm = w_ncdm;
+            }
+            if (ppr->ncdm_fluid_approximation == ncdmfa_CLASS) {
+              ceff2_ncdm = ca2_ncdm;
+              cvis2_ncdm = 3.*w_ncdm*ca2_ncdm;
+            }
+
+            /** -----> exact continuity equation */
+
+            dy[idx] = -(1.0+w_ncdm)*(y[idx+1]+metric_continuity)-
+              3.0*a_prime_over_a*(ceff2_ncdm-w_ncdm)*y[idx];
+
+            /** -----> exact euler equation */
+
+            dy[idx+1] = -a_prime_over_a*(1.0-3.0*ca2_ncdm)*y[idx+1]+
+              ceff2_ncdm/(1.0+w_ncdm)*k2*y[idx]-k2*y[idx+2]
+              + metric_euler;
+
+            /** -----> different ansatz for approximate shear derivative */
+
+            if (ppr->ncdm_fluid_approximation == ncdmfa_mb) {
+
+              dy[idx+2] = -3.0*(a_prime_over_a*(2./3.-ca2_ncdm-pseudo_p_ncdm/p_ncdm_bg/3.)+1./tau)*y[idx+2]
+                +8.0/3.0*cvis2_ncdm/(1.0+w_ncdm)*s_l[2]*(y[idx+1]+metric_shear);
+
+            }
+
+            if (ppr->ncdm_fluid_approximation == ncdmfa_hu) {
+
+              dy[idx+2] = -3.0*a_prime_over_a*ca2_ncdm/w_ncdm*y[idx+2]
+                +8.0/3.0*cvis2_ncdm/(1.0+w_ncdm)*s_l[2]*(y[idx+1]+metric_shear);
+
+            }
+
+            if (ppr->ncdm_fluid_approximation == ncdmfa_CLASS) {
+
+              dy[idx+2] = -3.0*(a_prime_over_a*(2./3.-ca2_ncdm-pseudo_p_ncdm/p_ncdm_bg/3.)+1./tau)*y[idx+2]
+                +8.0/3.0*cvis2_ncdm/(1.0+w_ncdm)*s_l[2]*(y[idx+1]+metric_ufa_class);
+
+            }
+
+            /** -----> jump to next species */
+            idx += pv->l_max_ncdm[n_ncdm]+1;
           }
-          if (ppr->ncdm_fluid_approximation == ncdmfa_CLASS) {
-            ceff2_ncdm = ca2_ncdm;
-            cvis2_ncdm = 3.*w_ncdm*ca2_ncdm;
-          }
-
-          /** -----> exact continuity equation */
-
-          dy[idx] = -(1.0+w_ncdm)*(y[idx+1]+metric_continuity)-
-            3.0*a_prime_over_a*(ceff2_ncdm-w_ncdm)*y[idx];
-
-          /** -----> exact euler equation */
-
-          dy[idx+1] = -a_prime_over_a*(1.0-3.0*ca2_ncdm)*y[idx+1]+
-            ceff2_ncdm/(1.0+w_ncdm)*k2*y[idx]-k2*y[idx+2]
-            + metric_euler;
-
-          /** -----> different ansatz for approximate shear derivative */
-
-          if (ppr->ncdm_fluid_approximation == ncdmfa_mb) {
-
-            dy[idx+2] = -3.0*(a_prime_over_a*(2./3.-ca2_ncdm-pseudo_p_ncdm/p_ncdm_bg/3.)+1./tau)*y[idx+2]
-              +8.0/3.0*cvis2_ncdm/(1.0+w_ncdm)*s_l[2]*(y[idx+1]+metric_shear);
-
-          }
-
-          if (ppr->ncdm_fluid_approximation == ncdmfa_hu) {
-
-            dy[idx+2] = -3.0*a_prime_over_a*ca2_ncdm/w_ncdm*y[idx+2]
-              +8.0/3.0*cvis2_ncdm/(1.0+w_ncdm)*s_l[2]*(y[idx+1]+metric_shear);
-
-          }
-
-          if (ppr->ncdm_fluid_approximation == ncdmfa_CLASS) {
-
-            dy[idx+2] = -3.0*(a_prime_over_a*(2./3.-ca2_ncdm-pseudo_p_ncdm/p_ncdm_bg/3.)+1./tau)*y[idx+2]
-              +8.0/3.0*cvis2_ncdm/(1.0+w_ncdm)*s_l[2]*(y[idx+1]+metric_ufa_class);
-
-          }
-
-          /** -----> jump to next species */
-
-          idx += pv->l_max_ncdm[n_ncdm]+1;
         }
       }
 
